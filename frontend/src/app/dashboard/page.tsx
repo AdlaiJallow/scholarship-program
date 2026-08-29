@@ -5,6 +5,9 @@ import { api, ApiError } from "@/lib/api";
 import { RequirementsResponse, StudentProfile } from "@/lib/types";
 import { StatusPill } from "@/components/StatusPill";
 import { DocumentUploadRow } from "@/components/DocumentUploadRow";
+import { ProgressBar } from "@/components/ProgressBar";
+import { Alert } from "@/components/Alert";
+import { SkeletonCard } from "@/components/Skeleton";
 
 const EDITABLE_STATUSES = new Set(["not_started", "in_progress", "additional_info_required", "resubmission_required"]);
 
@@ -51,48 +54,61 @@ export default function DashboardPage() {
   }
 
   if (loadError) {
-    return <div className="error-banner">{loadError}</div>;
+    return <Alert tone="error">{loadError}</Alert>;
   }
 
   if (!profile || !requirements) {
-    return <p className="muted">Loading…</p>;
+    return (
+      <div className="stack">
+        <div className="skeleton" style={{ width: "40%", height: "1.7rem" }} />
+        <div className="skeleton" style={{ width: "60%", height: "1rem" }} />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    );
   }
 
   const editable = EDITABLE_STATUSES.has(requirements.application_status);
-  const mandatoryOutstanding = requirements.requirements.filter(
-    (r) => r.required_document.is_mandatory && !r.submitted?.current_version
-  );
+  const mandatoryDocs = requirements.requirements.filter((r) => r.required_document.is_mandatory);
+  const mandatoryOutstanding = mandatoryDocs.filter((r) => !r.submitted?.current_version);
+  const mandatoryDone = mandatoryDocs.length - mandatoryOutstanding.length;
 
   return (
-    <div className="stack">
-      <h1>Welcome, {profile.full_name}</h1>
-      <div className="row" style={{ alignItems: "center" }}>
-        <span className="muted">Verification status:</span>
+    <div>
+      <div className="split" style={{ alignItems: "flex-start", marginBottom: "var(--space-2)" }}>
+        <div>
+          <span className="eyebrow">Your application</span>
+          <h1 style={{ margin: "0.2rem 0 0" }}>Welcome, {profile.full_name}</h1>
+        </div>
         <StatusPill status={requirements.application_status} />
       </div>
 
+      <div className="panel" style={{ marginBottom: "var(--space-6)" }}>
+        <ProgressBar done={mandatoryDone} total={mandatoryDocs.length} />
+      </div>
+
       {requirements.application_status === "additional_info_required" && (
-        <div className="error-banner">
+        <Alert tone="warning" title="Action needed">
           The Ministry needs corrections on one or more documents below before your application can proceed.
-        </div>
+        </Alert>
       )}
 
       <h2>Required documents</h2>
-      <div>
+      <div className="stack">
         {requirements.requirements.map((row) => (
           <DocumentUploadRow key={row.required_document.id} row={row} editable={editable} onChanged={load} />
         ))}
       </div>
 
       {editable && (
-        <div className="card">
-          {submitError && <div className="error-banner">{submitError}</div>}
+        <div className="panel" style={{ marginTop: "var(--space-6)", borderColor: "var(--teal-tint-strong)" }}>
+          {submitError && <Alert tone="error">{submitError}</Alert>}
           {mandatoryOutstanding.length > 0 ? (
-            <p className="muted">
+            <p className="muted" style={{ marginBottom: "var(--space-4)" }}>
               Upload all required documents before submitting: {mandatoryOutstanding.map((r) => r.required_document.name).join(", ")}.
             </p>
           ) : (
-            <p className="muted">
+            <p style={{ marginBottom: "var(--space-4)" }}>
               By submitting, you confirm the information and documents above are accurate and complete.
             </p>
           )}
@@ -102,6 +118,7 @@ export default function DashboardPage() {
             onClick={handleSubmit}
             disabled={submitting || mandatoryOutstanding.length > 0}
           >
+            {submitting && <span className="spinner" />}
             {submitting ? "Submitting…" : "Submit for verification"}
           </button>
         </div>

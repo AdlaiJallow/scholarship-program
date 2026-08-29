@@ -1,7 +1,16 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from .models import FailedLoginAttempt, Officer, Permission, Role, Student, StudentPreRegistration, User
+from .models import (
+    EmailVerificationCode,
+    FailedLoginAttempt,
+    Officer,
+    Permission,
+    Role,
+    Student,
+    StudentPreRegistration,
+    User,
+)
 
 
 @admin.register(User)
@@ -50,13 +59,32 @@ class StudentAdmin(admin.ModelAdmin):
 
 @admin.register(StudentPreRegistration)
 class StudentPreRegistrationAdmin(admin.ModelAdmin):
-    list_display = ("scholarship_id", "full_name", "activation_code_channel", "is_activated_display", "created_at")
-    search_fields = ("scholarship_id", "full_name", "email")
-    readonly_fields = ("activation_code_hash", "activated_at", "activated_student")
+    list_display = ("mat_number", "full_name", "is_activated_display", "created_at")
+    search_fields = ("mat_number", "full_name", "email")
+    readonly_fields = ("activated_at", "activated_student")
 
     @admin.display(description="Activated", boolean=True)
     def is_activated_display(self, obj):
         return obj.is_activated
+
+
+@admin.register(EmailVerificationCode)
+class EmailVerificationCodeAdmin(admin.ModelAdmin):
+    list_display = ("pre_registration", "email", "created_at", "expires_at", "used_at", "invalidated_at", "attempts")
+    search_fields = ("pre_registration__mat_number", "email")
+    readonly_fields = (
+        "pre_registration",
+        "email",
+        "code_hash",
+        "attempts",
+        "used_at",
+        "invalidated_at",
+        "created_at",
+        "expires_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(FailedLoginAttempt)

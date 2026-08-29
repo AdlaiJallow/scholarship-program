@@ -128,6 +128,7 @@ export interface StudentProfile {
   phone_number: string;
   address: string;
   email: string;
+  user_type: "student";
 }
 
 export interface OfficerProfile {
@@ -135,6 +136,26 @@ export interface OfficerProfile {
   employee_id: string;
   department: string;
   role: string;
+  email: string;
+  user_type: "officer";
+}
+
+export interface VerifyIdentityResponse {
+  detail: string;
+}
+
+export interface VerifyCodeResponse {
+  verification_token: string;
+  detail: string;
+}
+
+export interface ResendCodeResponse {
+  detail: string;
+  retry_after_seconds?: number;
+}
+
+export interface CreateAccountResponse {
+  user_type: "student";
   email: string;
 }
 

@@ -9,12 +9,13 @@ after a decision was already made) — kept here as a regression test so
 neither regresses silently.
 """
 
-from datetime import date, timedelta
+import re
+from datetime import date
 
-from django.contrib.auth.hashers import make_password
+from django.core import mail
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
-from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import Officer, Role, StudentPreRegistration
@@ -28,6 +29,9 @@ PDF_BYTES = b"%PDF-1.4\n%test document\n"
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, DOCUMENT_STORAGE_BACKEND="filesystem")
 class VerificationWorkflowTests(APITestCase):
     def setUp(self):
+        # ScopedRateThrottle state lives in the cache, not the DB, so it
+        # isn't reset by the per-test transaction rollback.
+        cache.clear()
         country = Country.objects.create(name="Senegal", iso_code="SEN")
         institution = Institution.objects.create(name="UCAD", country=country)
         program = Program.objects.create(
@@ -36,7 +40,7 @@ class VerificationWorkflowTests(APITestCase):
         scholarship_type = ScholarshipType.objects.create(name="Merit")
 
         self.scholarship = Scholarship.objects.create(
-            scholarship_reference_id="GOV-SCH-TEST-0001",
+            scholarship_reference_id="20260001",
             scholarship_type=scholarship_type,
             institution=institution,
             country=country,
@@ -53,13 +57,10 @@ class VerificationWorkflowTests(APITestCase):
         )
 
         self.pre_reg = StudentPreRegistration.objects.create(
-            scholarship_id="GOV-SCH-TEST-0001",
+            mat_number="20260001",
             full_name="Test Student",
             date_of_birth=date(2002, 1, 1),
-            email="student@example.com",
-            activation_code_hash=make_password("123456"),
-            activation_code_channel=StudentPreRegistration.ActivationChannel.IN_PERSON,
-            activation_code_expires_at=timezone.now() + timedelta(days=30),
+            email="student@utg.edu.gm",
         )
 
         # "Verification Officer" and its permissions are seeded by
@@ -78,13 +79,24 @@ class VerificationWorkflowTests(APITestCase):
 
     def _activate(self):
         resp = self.client.post(
-            "/api/v1/auth/activate",
-            {
-                "scholarship_id": "GOV-SCH-TEST-0001",
-                "date_of_birth": "2002-01-01",
-                "verification_code": "123456",
-                "password": "SuperSecret123!",
-            },
+            "/api/v1/auth/activation/verify-identity",
+            {"mat_number": "20260001", "utg_email": "student@utg.edu.gm"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        code = re.search(r"code is: (\d+)", mail.outbox[-1].body).group(1)
+
+        resp = self.client.post(
+            "/api/v1/auth/activation/verify-code",
+            {"mat_number": "20260001", "utg_email": "student@utg.edu.gm", "code": code},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        token = resp.json()["verification_token"]
+
+        resp = self.client.post(
+            "/api/v1/auth/activation/create-account",
+            {"verification_token": token, "password": "SuperSecret123!"},
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.content)
@@ -221,14 +233,14 @@ class VerificationWorkflowTests(APITestCase):
         self.assertIn(anon_resp.status_code, (401, 403))
 
     def test_activation_rejects_wrong_verification_code(self):
+        self.client.post(
+            "/api/v1/auth/activation/verify-identity",
+            {"mat_number": "20260001", "utg_email": "student@utg.edu.gm"},
+            format="json",
+        )
         resp = self.client.post(
-            "/api/v1/auth/activate",
-            {
-                "scholarship_id": "GOV-SCH-TEST-0001",
-                "date_of_birth": "2002-01-01",
-                "verification_code": "000000",
-                "password": "SuperSecret123!",
-            },
+            "/api/v1/auth/activation/verify-code",
+            {"mat_number": "20260001", "utg_email": "student@utg.edu.gm", "code": "000000"},
             format="json",
         )
         self.assertEqual(resp.status_code, 400)

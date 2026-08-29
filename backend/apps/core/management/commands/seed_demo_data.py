@@ -1,9 +1,6 @@
-import secrets
-from datetime import date, timedelta
+from datetime import date
 
-from django.contrib.auth.hashers import make_password
 from django.core.management.base import BaseCommand
-from django.utils import timezone
 
 
 class Command(BaseCommand):
@@ -64,9 +61,9 @@ class Command(BaseCommand):
 
         from apps.scholarships.models import Scholarship
 
-        demo_reference = "GOV-SCH-2026-0001"
+        demo_mat_number = "20260001"
         Scholarship.objects.get_or_create(
-            scholarship_reference_id=demo_reference,
+            scholarship_reference_id=demo_mat_number,
             defaults={
                 "scholarship_type": merit,
                 "institution": ucad,
@@ -77,23 +74,20 @@ class Command(BaseCommand):
             },
         )
 
-        if not StudentPreRegistration.objects.filter(scholarship_id=demo_reference).exists():
-            raw_code = f"{secrets.randbelow(1_000_000):06d}"
+        if not StudentPreRegistration.objects.filter(mat_number=demo_mat_number).exists():
             StudentPreRegistration.objects.create(
-                scholarship_id=demo_reference,
+                mat_number=demo_mat_number,
                 full_name="Fatou Sanneh",
                 date_of_birth=date(2002, 4, 12),
-                email="fatou.sanneh@example.com",
+                email="fatou.sanneh@utg.edu.gm",
                 phone_number="+220 700 0001",
                 institution_name=ucad.name,
-                activation_code_hash=make_password(raw_code),
-                activation_code_channel=StudentPreRegistration.ActivationChannel.IN_PERSON,
-                activation_code_expires_at=timezone.now() + timedelta(days=90),
             )
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Created pre-registration for scholarship_id={demo_reference}, "
-                    f"date_of_birth=2002-04-12, activation code={raw_code}"
+                    f"Created pre-registration for mat_number={demo_mat_number}, "
+                    "email=fatou.sanneh@utg.edu.gm — verification codes are now emailed on "
+                    "demand via /auth/activation/verify-identity, not pre-set."
                 )
             )
 

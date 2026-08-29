@@ -13,6 +13,14 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Loads backend/.env into the process environment for local (non-Docker) runs.
+# Docker Compose injects the same file via `env_file:` instead, so this is a
+# no-op there — actual environment variables always take precedence over
+# whatever the .env file contains.
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(BASE_DIR / ".env")
+
 
 def env(key, default=None, cast=str):
     value = os.environ.get(key, default)
@@ -146,8 +154,11 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_RATES": {
         "auth-login": "10/min",
-        "auth-activate": "10/min",
         "auth-password-reset": "5/min",
+        "activation-verify-identity": "10/min",
+        "activation-verify-code": "10/min",
+        "activation-resend-code": "5/min",
+        "activation-create-account": "10/min",
         "document-upload": "60/min",
     },
     "DATETIME_FORMAT": "iso-8601",
@@ -177,10 +188,37 @@ CORS_ALLOWED_ORIGINS = [o.strip() for o in env("CORS_ALLOWED_ORIGINS", "http://l
 CORS_ALLOW_CREDENTIALS = True
 
 # ---------------------------------------------------------------------------
+# Cache (backs ScopedRateThrottle). Defaults to the per-process LocMemCache
+# so local development needs no extra services (matches
+# CELERY_TASK_ALWAYS_EAGER=true in .env) — set CACHE_BACKEND=redis in
+# staging/production, where throttle state must be shared across workers.
+# ---------------------------------------------------------------------------
+CACHE_BACKEND = env("CACHE_BACKEND", "locmem")  # locmem | redis
+CACHES = {
+    "default": (
+        {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": env("DJANGO_CACHE_URL", "redis://localhost:6379/2"),
+        }
+        if CACHE_BACKEND == "redis"
+        else {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    )
+}
+
+# ---------------------------------------------------------------------------
 # Account lockout / brute-force protection (§16)
 # ---------------------------------------------------------------------------
 ACCOUNT_LOCKOUT_THRESHOLD = env("ACCOUNT_LOCKOUT_THRESHOLD", 5, cast=int)
 ACCOUNT_LOCKOUT_WINDOW_MINUTES = env("ACCOUNT_LOCKOUT_WINDOW_MINUTES", 15, cast=int)
+
+# ---------------------------------------------------------------------------
+# Student self-activation (MAT number + UTG email -> emailed code -> account)
+# ---------------------------------------------------------------------------
+ACTIVATION_CODE_EXPIRY_HOURS = env("ACTIVATION_CODE_EXPIRY_HOURS", 24, cast=int)
+ACTIVATION_MAX_CODE_ATTEMPTS = env("ACTIVATION_MAX_CODE_ATTEMPTS", 5, cast=int)
+ACTIVATION_RESEND_COOLDOWN_SECONDS = env("ACTIVATION_RESEND_COOLDOWN_SECONDS", 60, cast=int)
+ACTIVATION_MAX_RESENDS_PER_DAY = env("ACTIVATION_MAX_RESENDS_PER_DAY", 5, cast=int)
+ACTIVATION_TOKEN_TTL_SECONDS = env("ACTIVATION_TOKEN_TTL_SECONDS", 20 * 60, cast=int)
 
 # ---------------------------------------------------------------------------
 # Document storage (§13, §16) — S3-compatible (MinIO by default)

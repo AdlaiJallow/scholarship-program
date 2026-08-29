@@ -3,12 +3,14 @@
 import { useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { RequirementRow } from "@/lib/types";
+import { Icon, IconName } from "@/components/Icon";
+import { Alert } from "@/components/Alert";
 
-const SLOT_LABEL: Record<string, { label: string; tone: "neutral" | "progress" | "good" | "bad" }> = {
-  pending: { label: "Pending review", tone: "progress" },
-  verified: { label: "Accepted", tone: "good" },
-  rejected: { label: "Rejected", tone: "bad" },
-  needs_clarification: { label: "Needs correction", tone: "bad" },
+const SLOT_LABEL: Record<string, { label: string; tone: "neutral" | "progress" | "good" | "bad"; icon: IconName }> = {
+  pending: { label: "Pending review", tone: "progress", icon: "clock" },
+  verified: { label: "Accepted", tone: "good", icon: "check-circle" },
+  rejected: { label: "Rejected", tone: "bad", icon: "alert-circle" },
+  needs_clarification: { label: "Needs correction", tone: "bad", icon: "alert-triangle" },
 };
 
 export function DocumentUploadRow({
@@ -68,45 +70,67 @@ export function DocumentUploadRow({
   }
 
   const statusMeta = submitted ? SLOT_LABEL[submitted.status] : null;
+  const accept = doc.accepted_file_types.map((t) => `.${t}`).join(",");
+  const maxSizeMb = (doc.max_file_size_bytes / (1024 * 1024)).toFixed(0);
 
   return (
-    <div className="card" style={{ marginBottom: "0.75rem" }}>
-      <div className="row" style={{ justifyContent: "space-between" }}>
+    <div className="card">
+      <div className="card-title-row">
         <div>
           <strong>{doc.name}</strong>
           {doc.is_mandatory && <span className="muted"> (required)</span>}
-          {doc.description && <p className="muted">{doc.description}</p>}
+          {doc.description && <p className="muted" style={{ marginTop: "0.2rem", marginBottom: 0 }}>{doc.description}</p>}
         </div>
-        {statusMeta && <span className={`pill pill-${statusMeta.tone}`}>{statusMeta.label}</span>}
+        {statusMeta && (
+          <span className={`pill pill-${statusMeta.tone}`}>
+            <Icon name={statusMeta.icon} size={12} />
+            {statusMeta.label}
+          </span>
+        )}
       </div>
 
       {submitted?.current_version && (
-        <p className="muted">
-          Uploaded: {submitted.current_version.original_filename} (v{submitted.current_version.version_number})
+        <p className="muted row" style={{ gap: "0.4rem" }}>
+          <Icon name="file" size={14} />
+          {submitted.current_version.original_filename} (v{submitted.current_version.version_number})
         </p>
       )}
 
       {submitted?.reviews.some((r) => r.comment) && (
-        <div className="error-banner" style={{ marginTop: "0.5rem" }}>
+        <Alert tone="warning" title="Correction requested">
           {submitted.reviews
             .filter((r) => r.comment)
             .map((r) => (
               <div key={r.id}>{r.comment}</div>
             ))}
-        </div>
+        </Alert>
       )}
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && (
+        <Alert tone="error">
+          {error}
+        </Alert>
+      )}
 
       {editable && (
-        <div className="row" style={{ marginTop: "0.6rem" }}>
-          <input
-            ref={fileInput}
-            type="file"
-            accept={doc.accepted_file_types.map((t) => `.${t}`).join(",")}
-            onChange={handleFileChange}
-            disabled={uploading}
-          />
+        <div className="row" style={{ marginTop: "0.75rem", alignItems: "stretch" }}>
+          <label className="dropzone" style={{ flex: 1, minWidth: 200 }}>
+            <input ref={fileInput} type="file" accept={accept} onChange={handleFileChange} disabled={uploading} />
+            {uploading ? (
+              <>
+                <span className="spinner" style={{ display: "block", margin: "0 auto 0.4rem" }} />
+                Uploading…
+              </>
+            ) : (
+              <>
+                <Icon name="upload" size={18} />
+                <div>{submitted ? "Replace file" : "Choose a file"} or drop it here</div>
+                <div className="muted" style={{ fontSize: "0.75rem" }}>
+                  {doc.accepted_file_types.join(", ").toUpperCase()} · up to {maxSizeMb}MB
+                </div>
+              </>
+            )}
+          </label>
           {submitted && (
             <button type="button" className="btn btn-secondary" onClick={handleDelete} disabled={uploading}>
               Remove

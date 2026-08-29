@@ -3,17 +3,40 @@ from rest_framework import serializers
 
 from .models import Officer, Student
 
+UTG_EMAIL_SUFFIX = "@utg.edu.gm"
+
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, trim_whitespace=False)
 
 
-class ActivateSerializer(serializers.Serializer):
-    scholarship_id = serializers.CharField()
-    date_of_birth = serializers.DateField()
-    verification_code = serializers.CharField()
+class VerifyIdentitySerializer(serializers.Serializer):
+    mat_number = serializers.RegexField(
+        r"^\d{8}$", error_messages={"invalid": "MAT number must be exactly 8 digits."}
+    )
+    utg_email = serializers.EmailField()
+
+    def validate_utg_email(self, value):
+        if not value.lower().endswith(UTG_EMAIL_SUFFIX):
+            raise serializers.ValidationError(f"Please use your UTG email address (ending in {UTG_EMAIL_SUFFIX}).")
+        return value
+
+
+class ResendCodeSerializer(VerifyIdentitySerializer):
+    pass
+
+
+class VerifyCodeSerializer(VerifyIdentitySerializer):
+    code = serializers.CharField(min_length=6, max_length=8)
+
+
+class CreateAccountSerializer(serializers.Serializer):
+    verification_token = serializers.CharField()
     password = serializers.CharField(write_only=True, trim_whitespace=False)
+    phone_number = serializers.CharField(required=False, allow_blank=True, default="")
+    address = serializers.CharField(required=False, allow_blank=True, default="")
+    gender = serializers.ChoiceField(choices=Student.Gender.choices, required=False, allow_blank=True, default="")
 
     def validate_password(self, value):
         validate_password(value)

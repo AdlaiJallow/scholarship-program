@@ -16,12 +16,15 @@ from apps.audit.services import log_action
 from . import services
 from .models import User
 from .serializers import (
-    ActivateSerializer,
+    CreateAccountSerializer,
     LoginSerializer,
     OfficerProfileSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
+    ResendCodeSerializer,
     StudentProfileSerializer,
+    VerifyCodeSerializer,
+    VerifyIdentitySerializer,
 )
 
 
@@ -60,17 +63,102 @@ class LogoutView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class ActivateView(APIView):
+class VerifyIdentityView(APIView):
+    """
+    Step 1-3 of self-activation: match a MAT number + UTG email against the
+    Ministry's imported records and email a one-time code. None of these
+    activation endpoints ever authenticate a session, so DRF never enforces
+    CSRF on them (SessionAuthentication only checks CSRF once
+    request.user is already authenticated) — the session stays anonymous
+    for the whole multi-step flow until CreateAccountView's login() call.
+    """
+
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "auth-activate"
+    throttle_scope = "activation-verify-identity"
 
     def post(self, request):
-        serializer = ActivateSerializer(data=request.data)
+        serializer = VerifyIdentitySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            user = services.activate_student_account(request=request, **serializer.validated_data)
-        except services.ActivationError as exc:
+            services.verify_identity(request=request, **serializer.validated_data)
+        except services.AlreadyActivatedError as exc:
+            return Response({"detail": str(exc), "already_activated": True}, status=status.HTTP_409_CONFLICT)
+        except services.IdentityMismatchError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "We've sent a verification code to your UTG email."}, status=status.HTTP_200_OK)
+
+
+class VerifyCodeView(APIView):
+    """Step 4-5: validate the emailed code and issue a short-lived token for account creation."""
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "activation-verify-code"
+
+    def post(self, request):
+        serializer = VerifyCodeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            token = services.verify_code(request=request, **serializer.validated_data)
+        except services.AlreadyActivatedError as exc:
+            return Response({"detail": str(exc), "already_activated": True}, status=status.HTTP_409_CONFLICT)
+        except services.IdentityMismatchError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except services.CodeLockedOutError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except services.CodeVerificationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"verification_token": token, "detail": "Identity verified."}, status=status.HTTP_200_OK)
+
+
+class ResendCodeView(APIView):
+    """Section 9: resend the verification code, invalidating the previous one."""
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "activation-resend-code"
+
+    def post(self, request):
+        serializer = ResendCodeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            services.resend_verification_code(request=request, **serializer.validated_data)
+        except services.AlreadyActivatedError as exc:
+            return Response({"detail": str(exc), "already_activated": True}, status=status.HTTP_409_CONFLICT)
+        except services.IdentityMismatchError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except services.ResendCooldownError as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                    "retry_after_seconds": exc.retry_after_seconds,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        except services.ResendLimitExceededError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return Response(
+            {"detail": "A new verification code has been sent to your UTG email. Your previous code is no longer valid."},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class CreateAccountView(APIView):
+    """Step 6: create the User/Student once identity + code are verified."""
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "activation-create-account"
+
+    def post(self, request):
+        serializer = CreateAccountSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            user = services.create_student_account(request=request, **serializer.validated_data)
+        except services.AlreadyActivatedError as exc:
+            return Response({"detail": str(exc), "already_activated": True}, status=status.HTTP_409_CONFLICT)
+        except services.VerificationTokenError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         login(request, user)
         return Response({"user_type": user.user_type, "email": user.email}, status=status.HTTP_201_CREATED)
@@ -132,5 +220,8 @@ class MeProfileView(APIView):
     def get(self, request):
         user = request.user
         if user.user_type == User.UserType.STUDENT:
-            return Response(StudentProfileSerializer(user.student_profile).data)
-        return Response(OfficerProfileSerializer(user.officer_profile).data)
+            data = StudentProfileSerializer(user.student_profile).data
+        else:
+            data = OfficerProfileSerializer(user.officer_profile).data
+        data["user_type"] = user.user_type
+        return Response(data)

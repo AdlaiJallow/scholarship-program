@@ -1,10 +1,13 @@
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
-from django.contrib.auth.hashers import make_password
+from django.contrib.auth.hashers import check_password, make_password
+from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
 
 from apps.core.fields import EncryptedCharField
 from apps.core.models import TimeStampedModel, UUIDPrimaryKeyModel
+
+mat_number_validator = RegexValidator(r"^\d{8}$", "MAT number must be exactly 8 digits.")
 
 
 class UserManager(BaseUserManager):
@@ -144,28 +147,18 @@ class StudentPreRegistration(TimeStampedModel):
     """
     A Ministry-imported scholarship-holder record that has not yet been
     claimed by a student account. This is the source of truth for identity
-    verification during activation (system specification §11, Option A+B):
-    the student must match this record's scholarship ID + date of birth,
-    plus a Ministry-issued one-time code, before a User/Student is created.
+    verification during activation: the student must submit a MAT number
+    and UTG email address matching this record before the system will
+    email a one-time verification code (see EmailVerificationCode) and let
+    them create a User/Student account.
     """
 
-    class ActivationChannel(models.TextChoices):
-        EMAIL = "email", "Email"
-        SMS = "sms", "SMS"
-        IN_PERSON = "in_person", "Issued in person / printed letter"
-
-    scholarship_id = models.CharField(max_length=50, unique=True)
+    mat_number = models.CharField(max_length=8, unique=True, validators=[mat_number_validator])
     full_name = models.CharField(max_length=200)
     date_of_birth = models.DateField()
     email = models.EmailField(blank=True)
     phone_number = models.CharField(max_length=30, blank=True)
     institution_name = models.CharField(max_length=200, blank=True)
-
-    activation_code_hash = models.CharField(max_length=255)
-    activation_code_channel = models.CharField(max_length=15, choices=ActivationChannel.choices)
-    activation_code_expires_at = models.DateTimeField()
-    activation_attempts = models.PositiveIntegerField(default=0)
-    max_activation_attempts = models.PositiveIntegerField(default=5)
 
     activated_at = models.DateTimeField(null=True, blank=True)
     activated_student = models.OneToOneField(
@@ -177,22 +170,67 @@ class StudentPreRegistration(TimeStampedModel):
         db_table = "student_pre_registrations"
 
     def __str__(self):
-        return f"{self.scholarship_id} — {self.full_name}"
+        return f"{self.mat_number} — {self.full_name}"
 
     @property
     def is_activated(self):
         return self.activated_at is not None
 
+
+class EmailVerificationCode(TimeStampedModel, UUIDPrimaryKeyModel):
+    """
+    A one-time code emailed to a student's UTG address to prove they control
+    it, as part of the self-activation flow. Kept as its own model (rather
+    than fields on StudentPreRegistration) so a resend can invalidate the
+    previous code while preserving both for the audit trail, and so
+    expiry/attempt-lockout are scoped per code, not per pre-registration.
+    """
+
+    pre_registration = models.ForeignKey(
+        StudentPreRegistration, on_delete=models.CASCADE, related_name="verification_codes"
+    )
+    email = models.EmailField()
+    code_hash = models.CharField(max_length=255)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveIntegerField(default=0)
+    max_attempts = models.PositiveIntegerField(default=5)
+    used_at = models.DateTimeField(null=True, blank=True)
+    invalidated_at = models.DateTimeField(null=True, blank=True)
+    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        db_table = "email_verification_codes"
+        indexes = [models.Index(fields=["pre_registration", "created_at"])]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"code for {self.pre_registration.mat_number} sent {self.created_at}"
+
+    def set_code(self, raw_code):
+        self.code_hash = make_password(raw_code)
+
+    def check_code(self, raw_code):
+        return check_password(raw_code, self.code_hash)
+
     @property
-    def is_code_expired(self):
-        return timezone.now() >= self.activation_code_expires_at
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
+
+    @property
+    def is_used(self):
+        return self.used_at is not None
+
+    @property
+    def is_invalidated(self):
+        return self.invalidated_at is not None
 
     @property
     def is_locked_out(self):
-        return self.activation_attempts >= self.max_activation_attempts
+        return self.attempts >= self.max_attempts
 
-    def set_activation_code(self, raw_code):
-        self.activation_code_hash = make_password(raw_code)
+    @property
+    def is_valid(self):
+        return not (self.is_expired or self.is_used or self.is_invalidated or self.is_locked_out)
 
 
 class FailedLoginAttempt(models.Model):

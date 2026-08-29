@@ -1,8 +1,11 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
+import { Icon } from "@/components/Icon";
+import { Alert } from "@/components/Alert";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,10 +38,27 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="stack" style={{ maxWidth: 420 }}>
-      <h1>Sign in</h1>
-      {error && <div className="error-banner">{error}</div>}
-      <form className="card" onSubmit={handleSubmit}>
+    <div className="shell-narrow" style={{ maxWidth: 400, margin: "var(--space-8) auto 0" }}>
+      <Link href="/" className="back-link">
+        <Icon name="chevron-left" size={15} />
+        Back
+      </Link>
+      <div style={{ textAlign: "center", marginBottom: "var(--space-6)" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/moherst-logo.jpeg"
+          alt="Ministry of Higher Education, Research, Science and Technology"
+          width={64}
+          height={64}
+          style={{ display: "block", margin: "0 auto var(--space-3)", borderRadius: "12px" }}
+        />
+        <h1>Sign in</h1>
+        <p className="muted" style={{ marginBottom: 0 }}>Access your scholarship verification account.</p>
+      </div>
+
+      {error && <Alert tone="error">{error}</Alert>}
+
+      <form className="panel" onSubmit={handleSubmit}>
         <div className="field">
           <label htmlFor="email">Email address</label>
           <input
@@ -50,7 +70,7 @@ export default function LoginPage() {
             autoComplete="email"
           />
         </div>
-        <div className="field">
+        <div className="field" style={{ marginBottom: "var(--space-5)" }}>
           <label htmlFor="password">Password</label>
           <input
             id="password"
@@ -61,13 +81,13 @@ export default function LoginPage() {
             autoComplete="current-password"
           />
         </div>
-        <button type="submit" className="btn btn-primary" disabled={submitting} style={{ width: "100%" }}>
+        <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
+          {submitting && <span className="spinner" />}
           {submitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
-      <p className="muted">
-        First time here? <a href="/activate">Activate your scholarship account</a> using the code the Ministry
-        gave you.
+      <p className="muted" style={{ textAlign: "center", marginTop: "var(--space-4)" }}>
+        First time here? <a href="/activate">Activate your scholarship account</a>
       </p>
     </div>
   );
