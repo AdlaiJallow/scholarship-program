@@ -70,7 +70,7 @@ export default function LoginPage() {
             autoComplete="email"
           />
         </div>
-        <div className="field" style={{ marginBottom: "var(--space-5)" }}>
+        <div className="field" style={{ marginBottom: "var(--space-2)" }}>
           <label htmlFor="password">Password</label>
           <input
             id="password"
@@ -81,6 +81,9 @@ export default function LoginPage() {
             autoComplete="current-password"
           />
         </div>
+        <p style={{ textAlign: "right", marginTop: 0, marginBottom: "var(--space-5)" }}>
+          <Link href="/forgot-password" className="muted">Forgot your password?</Link>
+        </p>
         <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
           {submitting && <span className="spinner" />}
           {submitting ? "Signing in…" : "Sign in"}

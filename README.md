@@ -62,6 +62,13 @@ python manage.py runserver
 student's activation code to the console — use those to exercise the full
 workflow through the API or frontend.
 
+For demos/presentations, `python manage.py seed_investor_demo` builds on
+top of `seed_demo_data` and populates five more scholarship holders spread
+across every stage of the pipeline (in progress, under review, additional
+info requested, rejected, approved) plus a second officer, so the queue,
+dashboards, notifications, and audit log all have realistic content to
+show. It prints all the demo accounts' credentials on completion.
+
 Run the test suite (covers the full activation → upload → submit →
 review → approve/reject/request-info workflow, plus the RBAC and
 terminal-state guards):

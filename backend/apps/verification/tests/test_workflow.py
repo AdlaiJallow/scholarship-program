@@ -194,6 +194,57 @@ class VerificationWorkflowTests(APITestCase):
         resubmit_resp = self.client.post("/api/v1/me/application/submit")
         self.assertEqual(resubmit_resp.status_code, 409)
 
+    def test_student_can_reupload_a_rejected_document_while_application_stays_under_review(self):
+        """
+        A single document can be rejected by an officer mid-review without the
+        whole application leaving under_review (that's a distinct, explicit
+        "request information" action). The student must still be able to fix
+        just that document without the application otherwise being editable.
+        """
+        self._activate()
+        self._upload()
+        submit_resp = self.client.post("/api/v1/me/application/submit")
+        application_id = submit_resp.data["id"]
+
+        self.client.force_authenticate(user=self.officer.user)
+        detail = self.client.get(f"/api/v1/admin/applications/{application_id}")
+        slot_id = detail.data["submitted_documents"][0]["id"]
+        review_resp = self.client.post(
+            f"/api/v1/admin/applications/{application_id}/documents/{slot_id}/review",
+            {"verdict": "rejected", "comment": "Blurry scan"},
+            format="json",
+        )
+        self.assertEqual(review_resp.status_code, 201, review_resp.content)
+
+        # Application status is unaffected by a single-document rejection.
+        detail = self.client.get(f"/api/v1/admin/applications/{application_id}")
+        self.assertEqual(detail.data["status"], "under_review")
+
+        self.client.force_authenticate(user=self._student_user())
+        reupload = self._upload()
+        self.assertEqual(reupload["status"], "pending")
+        self.assertEqual(reupload["current_version"]["version_number"], 2)
+
+    def test_student_can_delete_a_rejected_document_while_application_stays_under_review(self):
+        self._activate()
+        self._upload()
+        submit_resp = self.client.post("/api/v1/me/application/submit")
+        application_id = submit_resp.data["id"]
+
+        self.client.force_authenticate(user=self.officer.user)
+        detail = self.client.get(f"/api/v1/admin/applications/{application_id}")
+        slot_id = detail.data["submitted_documents"][0]["id"]
+        review_resp = self.client.post(
+            f"/api/v1/admin/applications/{application_id}/documents/{slot_id}/review",
+            {"verdict": "rejected", "comment": "Blurry scan"},
+            format="json",
+        )
+        self.assertEqual(review_resp.status_code, 201, review_resp.content)
+
+        self.client.force_authenticate(user=self._student_user())
+        delete_resp = self.client.delete(f"/api/v1/me/documents/{slot_id}")
+        self.assertEqual(delete_resp.status_code, 204, delete_resp.content)
+
     def test_request_additional_information_reopens_only_flagged_documents(self):
         self._activate()
         self._upload()

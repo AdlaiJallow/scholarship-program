@@ -81,11 +81,6 @@ class UploadDocumentView(APIView):
     def post(self, request):
         scholarship = _active_scholarship_or_404(request.user.student_profile)
         application = services.get_current_application(scholarship)
-        if not application.is_editable_by_student:
-            return Response(
-                {"detail": "This application is not currently open for document changes."},
-                status=status.HTTP_409_CONFLICT,
-            )
 
         required_document_id = request.data.get("required_document_id")
         file_obj = request.FILES.get("file")
@@ -95,6 +90,14 @@ class UploadDocumentView(APIView):
         required_document = get_object_or_404(
             RequiredDocument.resolve_for_scholarship(scholarship), pk=required_document_id
         )
+
+        existing_slot = application.submitted_documents.filter(required_document=required_document).first()
+        slot_rejected = existing_slot is not None and existing_slot.status == SubmittedDocument.Status.REJECTED
+        if not application.is_editable_by_student and not slot_rejected:
+            return Response(
+                {"detail": "This application is not currently open for document changes."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         try:
             validate_upload(file_obj, required_document.accepted_file_types, required_document.max_file_size_bytes)
@@ -136,7 +139,7 @@ class DeleteDocumentView(APIView):
             pk=submitted_document_id,
             application__scholarship__student=request.user.student_profile,
         )
-        if not slot.application.is_editable_by_student:
+        if not slot.application.is_editable_by_student and slot.status != SubmittedDocument.Status.REJECTED:
             return Response(
                 {"detail": "This application is not currently open for document changes."},
                 status=status.HTTP_409_CONFLICT,

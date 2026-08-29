@@ -17,6 +17,7 @@ export default function DashboardPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -42,6 +43,7 @@ export default function DashboardPage() {
     try {
       await api.post("/me/application/submit");
       await load();
+      setSubmitSuccess(true);
     } catch (err) {
       if (err instanceof ApiError && typeof err.detail === "object" && err.detail && "detail" in (err.detail as any)) {
         setSubmitError((err.detail as any).detail);
@@ -83,6 +85,12 @@ export default function DashboardPage() {
         <StatusPill status={requirements.application_status} />
       </div>
 
+      {submitSuccess && (
+        <Alert tone="success" title="Application submitted">
+          Your application has been submitted successfully. We&apos;ll notify you once it&apos;s been reviewed.
+        </Alert>
+      )}
+
       <div className="panel" style={{ marginBottom: "var(--space-6)" }}>
         <ProgressBar done={mandatoryDone} total={mandatoryDocs.length} />
       </div>
@@ -96,7 +104,12 @@ export default function DashboardPage() {
       <h2>Required documents</h2>
       <div className="stack">
         {requirements.requirements.map((row) => (
-          <DocumentUploadRow key={row.required_document.id} row={row} editable={editable} onChanged={load} />
+          <DocumentUploadRow
+            key={row.required_document.id}
+            row={row}
+            editable={editable || row.submitted?.status === "rejected"}
+            onChanged={load}
+          />
         ))}
       </div>
 

@@ -159,6 +159,10 @@ export interface CreateAccountResponse {
   email: string;
 }
 
+export interface PasswordResetRequestResponse {
+  detail?: string;
+}
+
 export interface Paginated<T> {
   count: number;
   next: string | null;
